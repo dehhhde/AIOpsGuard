@@ -1,0 +1,102 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: target-app
+  
+  # 数据库配置（默认使用 H2）
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      pool-name: TargetAppHikariCP
+  
+  # JPA 配置
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+  
+  # H2 控制台
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# Actuator 配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info,env
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+    tags:
+      application: ${spring.application.name}
+      environment: dev
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# 问题开关配置
+problem:
+  switches:
+    MEMORY_LEAK: false
+    THREAD_LEAK: false
+    SLOW_SQL: false
+    POOL_EXHAUST: false
+    CPU_SPIKE: false
+    DEADLOCK: false
+
+# Kafka 配置（可选）
+spring:
+  kafka:
+    enabled: false  # 默认禁用，需要时启用
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: 1
+      retries: 3
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.aiops.target: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# OpenTelemetry 配置（如果使用）
+otel:
+  service:
+    name: ${spring.application.name}
+  traces:
+    exporter: none  # 默认不导出，可配置为 otlp
+  metrics:
+    exporter: none

@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+  
+  jpa:
+    show-sql: false
+
+# OpenTelemetry for Docker
+otel:
+  service:
+    name: target-app
+  exporter:
+    otlp:
+      endpoint: http://tempo:4317
+  traces:
+    exporter: otlp
+    sampler:
+      probability: 1.0  # 100% 采样
+
+# 日志配置（Docker 环境）
+logging:
+  level:
+    root: INFO
+    com.aiops.target: INFO
