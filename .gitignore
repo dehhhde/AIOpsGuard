@@ -32,3 +32,24 @@ logs/
 *.temp
 *.swp
 *~
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+*.egg-info/
+
+# Env
+.env
+.env.local
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo

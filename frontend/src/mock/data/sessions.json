@@ -1,0 +1,441 @@
+[
+  {
+    "diagnosisId": "diag-20261116-0912",
+    "serviceName": "target-app",
+    "serviceInstance": "target-app-7d9f-1:8080",
+    "status": "completed",
+    "stage": "report",
+    "progress": 100,
+    "startedAt": "2026-11-16T09:12:03+08:00",
+    "finishedAt": "2026-11-16T09:14:36+08:00",
+    "triggerType": "alert",
+    "timeRange": {
+      "start": "2026-11-16T08:42:00+08:00",
+      "end": "2026-11-16T09:12:00+08:00"
+    },
+    "rootCauses": [
+      {
+        "rank": 1,
+        "cause": "订单查询接口的本地缓存未设置容量上限，堆内存持续增长并触发频繁 Full GC",
+        "confidence": 0.92,
+        "evidenceIds": ["ev-001", "ev-002", "ev-004"],
+        "recommendations": [
+          "为订单缓存改用 Caffeine 并设置 maximumSize 与 expireAfterWrite",
+          "在预发环境复现并采集 heap dump，确认泄漏对象引用链"
+        ]
+      },
+      {
+        "rank": 2,
+        "cause": "HikariCP 连接池等待升高，数据库慢查询放大接口耗时",
+        "confidence": 0.64,
+        "evidenceIds": ["ev-003", "ev-005"],
+        "recommendations": ["为 orders 表补充 (status, created_at) 联合索引", "连接池 maximumPoolSize 由 10 调整为 20"]
+      },
+      {
+        "rank": 3,
+        "cause": "容器 CPU 限额偏低，GC 线程与业务线程争抢 CPU",
+        "confidence": 0.38,
+        "evidenceIds": ["ev-006"],
+        "recommendations": ["将容器 CPU limit 由 1 核调整为 2 核"]
+      }
+    ],
+    "evidence": [
+      {
+        "id": "ev-001",
+        "type": "METRIC",
+        "summary": "堆内存使用量在 08:55 后由 640MB 持续升至 1.94GB，未见回落，呈典型泄漏形态",
+        "source": "prometheus: jvm.memory.used{area=\"heap\"}",
+        "metricName": "jvm.memory.used",
+        "instance": "target-app-7d9f-1:8080",
+        "dashboardUid": "aiops-target-app-jvm",
+        "panelId": 12,
+        "timeRange": {
+          "start": "2026-11-16T08:42:00+08:00",
+          "end": "2026-11-16T09:12:00+08:00"
+        },
+        "detail": {
+          "baselineMB": 620,
+          "peakMB": 1980,
+          "deviation": 0.86,
+          "pattern": "STEADY_INCREASE",
+          "agent": "MetricAgent"
+        }
+      },
+      {
+        "id": "ev-002",
+        "type": "LOG",
+        "summary": "30 分钟内出现 7 次 Full GC，单次停顿 1.2s ~ 2.6s，与接口超时时间高度重合",
+        "source": "loki: {app=\"target-app\"} |= \"Full GC\"",
+        "instance": "target-app-7d9f-1:8080",
+        "dashboardUid": "aiops-target-app-logs",
+        "panelId": 3,
+        "timeRange": {
+          "start": "2026-11-16T08:42:00+08:00",
+          "end": "2026-11-16T09:12:00+08:00"
+        },
+        "detail": {
+          "count": 7,
+          "maxPauseMs": 2600,
+          "sample": "2026-11-16 09:03:21.442 WARN [GC] Full GC (Ergonomics) 1.842s -> 1.51GB",
+          "agent": "LogAgent"
+        }
+      },
+      {
+        "id": "ev-003",
+        "type": "METRIC",
+        "summary": "连接池 pending 连接峰值 18，获取连接等待时长 P95 达到 850ms",
+        "source": "prometheus: hikaricp_connections_pending",
+        "metricName": "hikaricp.connections.pending",
+        "instance": "target-app-7d9f-1:8080",
+        "dashboardUid": "aiops-target-app-pool",
+        "panelId": 7,
+        "timeRange": {
+          "start": "2026-11-16T08:42:00+08:00",
+          "end": "2026-11-16T09:12:00+08:00"
+        },
+        "detail": {
+          "maxPending": 18,
+          "p95AcquireMs": 850,
+          "poolSize": 10,
+          "agent": "MetricAgent"
+        }
+      },
+      {
+        "id": "ev-004",
+        "type": "TRACE",
+        "summary": "慢链路集中在 /api/orders/query，其中 62% 的耗时消耗在数据库等待",
+        "source": "tempo: traceId=4f9c2b8e71a34d5f",
+        "instance": "target-app-7d9f-1:8080",
+        "dashboardUid": "aiops-target-app-traces",
+        "panelId": 5,
+        "timeRange": {
+          "start": "2026-11-16T09:01:00+08:00",
+          "end": "2026-11-16T09:06:00+08:00"
+        },
+        "detail": {
+          "traceId": "4f9c2b8e71a34d5f",
+          "span": "POST /api/orders/query",
+          "durationMs": 2412,
+          "dbWaitRatio": 0.62,
+          "agent": "TraceAgent"
+        }
+      },
+      {
+        "id": "ev-005",
+        "type": "LOG",
+        "summary": "慢 SQL 日志激增，orders 表缺少 (status, created_at) 联合索引",
+        "source": "loki: {app=\"target-app\"} |~ \"slow sql\"",
+        "dashboardUid": "aiops-target-app-logs",
+        "panelId": 9,
+        "timeRange": {
+          "start": "2026-11-16T08:50:00+08:00",
+          "end": "2026-11-16T09:10:00+08:00"
+        },
+        "detail": {
+          "slowSqlCount": 143,
+          "maxCostMs": 1870,
+          "statement": "select * from orders where status = ? order by created_at desc limit 50",
+          "agent": "LogAgent"
+        }
+      },
+      {
+        "id": "ev-006",
+        "type": "METRIC",
+        "summary": "容器 CPU 使用率频繁触顶 1.0 核限制，GC 线程与业务线程争抢 CPU",
+        "source": "prometheus: container_cpu_usage_seconds_total",
+        "metricName": "container.cpu.usage",
+        "instance": "target-app-7d9f-1",
+        "dashboardUid": "aiops-target-app-host",
+        "panelId": 4,
+        "timeRange": {
+          "start": "2026-11-16T08:42:00+08:00",
+          "end": "2026-11-16T09:12:00+08:00"
+        },
+        "detail": {
+          "limitCores": 1,
+          "avgUsageCores": 0.93,
+          "throttledPeriods": 42,
+          "agent": "MetricAgent"
+        }
+      }
+    ],
+    "report": {
+      "diagnosisId": "diag-20261116-0912",
+      "generatedAt": "2026-11-16T09:14:36+08:00",
+      "summary": "target-app 在 08:42 ~ 09:12 窗口内接口耗时显著上升，根因为订单查询缓存未设上限导致堆内存泄漏，并叠加连接池等待与 CPU 限额，置信度 0.92。",
+      "sections": [
+        {
+          "title": "一、诊断概述",
+          "content": "**诊断对象**：target-app（实例 target-app-7d9f-1:8080）\n\n**时间窗**：2026-11-16 08:42 ~ 09:12\n\n**现象**：`/api/orders/query` P99 由 320ms 升至 2.4s，5xx 比例由 0.3% 升至 4.1%，期间发生 7 次 Full GC。\n\n**结论**：缓存未设容量上限引发的堆内存泄漏是主因，连接池等待与 CPU 限额为放大因素。"
+        },
+        {
+          "title": "二、关键证据",
+          "content": "- `jvm.memory.used` 由 640MB 持续升至 1.94GB，无回落（ev-001）\n- 30 分钟内 7 次 Full GC，最长停顿 2.6s（ev-002）\n- `hikaricp.connections.pending` 峰值 18，等待 P95 850ms（ev-003）\n- 慢链路 62% 耗时在数据库等待（ev-004）\n- 慢 SQL 日志 143 条，orders 表缺少联合索引（ev-005）"
+        },
+        {
+          "title": "三、根因分析",
+          "content": "1. **缓存无上限**：订单查询使用 `ConcurrentHashMap` 本地缓存，key 维度包含查询条件，长期累积导致老年代无法回收。\n2. **慢查询放大**：orders 表缺少 `(status, created_at)` 联合索引，单次查询最慢 1.87s，占满连接池。\n3. **资源争抢**：容器 CPU limit 为 1 核，Full GC 线程与业务线程争抢 CPU，进一步拉长响应时间。"
+        },
+        {
+          "title": "四、修复建议",
+          "content": "- 使用 Caffeine 替换本地缓存，设置 `maximumSize=10000`、`expireAfterWrite=10m`\n- 为 orders 表补充 `(status, created_at)` 联合索引，并复核执行计划\n- 连接池 `maximumPoolSize` 由 10 调整为 20，开启泄漏检测 `leakDetectionThreshold=30s`\n- 容器 CPU limit 由 1 核调整为 2 核，观察 GC 停顿变化"
+        },
+        {
+          "title": "五、后续观察",
+          "content": "建议在修复后观察 24 小时：\n\n- 堆内存使用是否稳定在 800MB 以内\n- Full GC 次数是否降为每天不超过 1 次\n- `/api/orders/query` P99 是否回落至 500ms 以内\n\n可在 Grafana 的 `AIOps - target-app - JVM` Dashboard 持续跟踪。",
+          "collapsed": true
+        }
+      ],
+      "recommendations": [
+        "为订单缓存改用 Caffeine 并设置容量上限",
+        "补充 orders 表联合索引并复核慢查询",
+        "调整连接池大小并开启泄漏检测",
+        "提高容器 CPU limit，观察 GC 停顿"
+      ]
+    }
+  },
+  {
+    "diagnosisId": "diag-20261116-1020",
+    "serviceName": "target-app",
+    "serviceInstance": "target-app-7d9f-1:8080",
+    "status": "analyzing",
+    "stage": "log",
+    "progress": 45,
+    "startedAt": "2026-11-16T10:20:00+08:00",
+    "triggerType": "manual",
+    "timeRange": {
+      "start": "2026-11-16T09:50:00+08:00",
+      "end": "2026-11-16T10:20:00+08:00"
+    },
+    "rootCauses": [],
+    "evidence": []
+  },
+  {
+    "diagnosisId": "diag-20261116-0830",
+    "serviceName": "order-service",
+    "serviceInstance": "order-service-5c6d-2:8081",
+    "status": "completed",
+    "stage": "report",
+    "progress": 100,
+    "startedAt": "2026-11-16T08:30:11+08:00",
+    "finishedAt": "2026-11-16T08:32:05+08:00",
+    "triggerType": "alert",
+    "timeRange": {
+      "start": "2026-11-16T08:00:00+08:00",
+      "end": "2026-11-16T08:30:00+08:00"
+    },
+    "rootCauses": [
+      {
+        "rank": 1,
+        "cause": "下游支付服务超时导致订单创建接口线程池排队",
+        "confidence": 0.81,
+        "evidenceIds": ["ev-ord-001", "ev-ord-002"]
+      }
+    ],
+    "evidence": [
+      {
+        "id": "ev-ord-001",
+        "type": "TRACE",
+        "summary": "下单链路在调用支付服务时出现 3s 固定超时",
+        "source": "tempo: traceId=9a1c33d0b7",
+        "timeRange": {
+          "start": "2026-11-16T08:10:00+08:00",
+          "end": "2026-11-16T08:25:00+08:00"
+        },
+        "detail": { "span": "POST /api/orders", "downstream": "payment-service", "timeoutMs": 3000 }
+      },
+      {
+        "id": "ev-ord-002",
+        "type": "LOG",
+        "summary": "日志中 payment timeout 关键词出现 218 次",
+        "source": "loki: {app=\"order-service\"} |~ \"payment timeout\"",
+        "timeRange": {
+          "start": "2026-11-16T08:10:00+08:00",
+          "end": "2026-11-16T08:28:00+08:00"
+        },
+        "detail": { "count": 218 }
+      }
+    ]
+  },
+  {
+    "diagnosisId": "diag-20261115-2140",
+    "serviceName": "payment-service",
+    "serviceInstance": "payment-service-84bf-1:8082",
+    "status": "completed",
+    "stage": "report",
+    "progress": 100,
+    "startedAt": "2026-11-15T21:40:00+08:00",
+    "finishedAt": "2026-11-15T21:42:30+08:00",
+    "triggerType": "manual",
+    "timeRange": {
+      "start": "2026-11-15T21:10:00+08:00",
+      "end": "2026-11-15T21:40:00+08:00"
+    },
+    "rootCauses": [
+      {
+        "rank": 1,
+        "cause": "支付回调线程池队列打满，回调处理延迟升高",
+        "confidence": 0.74,
+        "evidenceIds": ["ev-pay-001"]
+      }
+    ],
+    "evidence": [
+      {
+        "id": "ev-pay-001",
+        "type": "METRIC",
+        "summary": "线程池 active 线程数长期等于最大值 32，队列长度持续增长",
+        "source": "prometheus: executor_pool_active_threads",
+        "metricName": "executor.pool.active",
+        "timeRange": {
+          "start": "2026-11-15T21:10:00+08:00",
+          "end": "2026-11-15T21:40:00+08:00"
+        },
+        "detail": { "active": 32, "max": 32, "queueSize": 1240 }
+      }
+    ]
+  },
+  {
+    "diagnosisId": "diag-20261115-1930",
+    "serviceName": "target-app",
+    "serviceInstance": "target-app-7d9f-1:8080",
+    "status": "failed",
+    "stage": "trace",
+    "progress": 70,
+    "startedAt": "2026-11-15T19:30:00+08:00",
+    "finishedAt": "2026-11-15T19:31:10+08:00",
+    "triggerType": "alert",
+    "timeRange": {
+      "start": "2026-11-15T19:00:00+08:00",
+      "end": "2026-11-15T19:30:00+08:00"
+    },
+    "rootCauses": [],
+    "evidence": []
+  },
+  {
+    "diagnosisId": "diag-20261115-1615",
+    "serviceName": "inventory-service",
+    "serviceInstance": "inventory-service-77aa-1:8083",
+    "status": "completed",
+    "stage": "report",
+    "progress": 100,
+    "startedAt": "2026-11-15T16:15:20+08:00",
+    "finishedAt": "2026-11-15T16:17:12+08:00",
+    "triggerType": "schedule",
+    "timeRange": {
+      "start": "2026-11-15T15:45:00+08:00",
+      "end": "2026-11-15T16:15:00+08:00"
+    },
+    "rootCauses": [
+      {
+        "rank": 1,
+        "cause": "库存查询缓存击穿导致数据库瞬时压力过高",
+        "confidence": 0.69,
+        "evidenceIds": ["ev-inv-001"]
+      }
+    ],
+    "evidence": [
+      {
+        "id": "ev-inv-001",
+        "type": "METRIC",
+        "summary": "数据库 QPS 在缓存过期瞬间出现 6 倍尖刺",
+        "source": "prometheus: db_query_qps",
+        "metricName": "db.query.qps",
+        "timeRange": {
+          "start": "2026-11-15T15:45:00+08:00",
+          "end": "2026-11-15T16:15:00+08:00"
+        },
+        "detail": { "baselineQps": 120, "spikeQps": 720 }
+      }
+    ]
+  },
+  {
+    "diagnosisId": "diag-20261115-1400",
+    "serviceName": "target-app",
+    "serviceInstance": "target-app-7d9f-2:8080",
+    "status": "completed",
+    "stage": "report",
+    "progress": 100,
+    "startedAt": "2026-11-15T14:00:08+08:00",
+    "finishedAt": "2026-11-15T14:02:41+08:00",
+    "triggerType": "manual",
+    "timeRange": {
+      "start": "2026-11-15T13:30:00+08:00",
+      "end": "2026-11-15T14:00:00+08:00"
+    },
+    "rootCauses": [
+      {
+        "rank": 1,
+        "cause": "日志级别误调为 DEBUG，磁盘 IO 与日志框架开销拖慢接口",
+        "confidence": 0.58,
+        "evidenceIds": ["ev-log-001"]
+      }
+    ],
+    "evidence": [
+      {
+        "id": "ev-log-001",
+        "type": "LOG",
+        "summary": "DEBUG 日志占比 92%，每秒日志量由 2MB 升至 48MB",
+        "source": "loki: {app=\"target-app\"} |= \"DEBUG\"",
+        "timeRange": {
+          "start": "2026-11-15T13:30:00+08:00",
+          "end": "2026-11-15T14:00:00+08:00"
+        },
+        "detail": { "debugRatio": 0.92, "logVolumeMBPerSec": 48 }
+      }
+    ]
+  },
+  {
+    "diagnosisId": "diag-20261115-0930",
+    "serviceName": "order-service",
+    "serviceInstance": "order-service-5c6d-1:8081",
+    "status": "failed",
+    "stage": "metric",
+    "progress": 35,
+    "startedAt": "2026-11-15T09:30:00+08:00",
+    "finishedAt": "2026-11-15T09:30:48+08:00",
+    "triggerType": "manual",
+    "timeRange": {
+      "start": "2026-11-15T09:00:00+08:00",
+      "end": "2026-11-15T09:30:00+08:00"
+    },
+    "rootCauses": [],
+    "evidence": []
+  },
+  {
+    "diagnosisId": "diag-20261114-2200",
+    "serviceName": "payment-service",
+    "serviceInstance": "payment-service-84bf-2:8082",
+    "status": "completed",
+    "stage": "report",
+    "progress": 100,
+    "startedAt": "2026-11-14T22:00:00+08:00",
+    "finishedAt": "2026-11-14T22:01:55+08:00",
+    "triggerType": "schedule",
+    "timeRange": {
+      "start": "2026-11-14T21:30:00+08:00",
+      "end": "2026-11-14T22:00:00+08:00"
+    },
+    "rootCauses": [
+      {
+        "rank": 1,
+        "cause": "Redis 连接池耗尽，支付状态查询出现超时",
+        "confidence": 0.71,
+        "evidenceIds": ["ev-redis-001"]
+      }
+    ],
+    "evidence": [
+      {
+        "id": "ev-redis-001",
+        "type": "METRIC",
+        "summary": "Redis 连接池 active 连接数长期达到上限 50",
+        "source": "prometheus: redis_pool_active_connections",
+        "metricName": "redis.pool.active",
+        "timeRange": {
+          "start": "2026-11-14T21:30:00+08:00",
+          "end": "2026-11-14T22:00:00+08:00"
+        },
+        "detail": { "active": 50, "max": 50 }
+      }
+    ]
+  }
+]
